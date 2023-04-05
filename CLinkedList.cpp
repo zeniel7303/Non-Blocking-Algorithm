@@ -93,8 +93,6 @@ bool CLinkedList::Remove(int _key)
 		m_lock.unlock();
 		return false;
 	}
-
-	return 0;
 }
 
 bool CLinkedList::Contains(int _key)
@@ -122,8 +120,6 @@ bool CLinkedList::Contains(int _key)
 		m_lock.unlock();
 		return false;
 	}
-
-	return 0;
 }
 #endif //__COARSE_GRAINED_SYNCHRONIZATION__
 
@@ -226,8 +222,6 @@ bool CLinkedList::Remove(int _key)
 		pred->Unlock();
 		return false;
 	}
-
-	return 0;
 }
 
 bool CLinkedList::Contains(int _key)
@@ -260,12 +254,206 @@ bool CLinkedList::Contains(int _key)
 		pred->Unlock();
 		return false;
 	}
-
-	return 0;
 }
 #endif //__FINE_GRAINED_SYNCHRONIZATION__
 
 #ifdef __OPTIMISTIC_SYNCHRONIZATION__
+CLinkedList::CLinkedList()
+{
+	m_head.m_key = 0x80000000;
+	m_tail.m_key = 0x7FFFFFFF;
+	m_head.m_next = &m_tail;
+
+	m_freeTail.m_key = 0x7FFFFFFF;
+	m_freeList = &m_freeTail;
+}
+
+CLinkedList::~CLinkedList()
+{
+
+}
+
+void CLinkedList::Init()
+{
+	CNode* ptr;
+	while (m_head.m_next != &m_tail)
+	{
+		ptr = m_head.m_next;
+		m_head.m_next = m_head.m_next->m_next;
+		delete ptr;
+	}
+}
+
+bool CLinkedList::Add(int _key)
+{
+	// predication(비교할 때 보조하는 연산) (함수에서도 적용)
+	CNode* pred;
+	CNode* curr;
+
+	pred = &m_head;
+	curr = pred->m_next;
+
+	while (curr->m_key < _key)
+	{
+		pred = curr;
+		curr = curr->m_next;
+	}
+
+	// 유효성 검사 전에 pred와 curr을 lock
+	pred->Lock();
+	curr->Lock();
+
+	if (Validate(pred, curr))
+	{
+		if (_key == curr->m_key)
+		{
+			curr->Unlock();
+			pred->Unlock();
+
+			return false;
+		}
+		else
+		{
+			CNode* node = new CNode(_key);
+			node->m_next = curr;
+			pred->m_next = node;
+			curr->Unlock();
+			pred->Unlock();
+
+			return true;
+		}
+	}
+
+	curr->Unlock();
+	pred->Unlock();
+
+	return false;
+}
+
+bool CLinkedList::Remove(int _key)
+{
+	CNode* pred;
+	CNode* curr;
+
+	pred = &m_head;
+	curr = pred->m_next;
+
+	while (curr->m_key < _key)
+	{
+		pred = curr;
+		curr = curr->m_next;
+	}
+
+	pred->Lock();
+	curr->Lock();
+
+	if (Validate(pred, curr))
+	{
+		if (_key == curr->m_key)
+		{
+			pred->m_next = curr->m_next;
+
+			// 추가
+			m_lock.lock();
+			curr->m_next = m_freeList;
+			m_freeList = curr;
+			m_lock.unlock();
+
+			pred->Unlock();
+			curr->Unlock();
+			//delete curr;
+
+			return true;
+		}
+		else
+		{
+			pred->Unlock();
+			curr->Unlock();
+
+			return false;
+		}
+	}
+
+	curr->Unlock();
+	pred->Unlock();
+
+	return false;
+}
+
+bool CLinkedList::Contains(int _key)
+{
+	CNode* pred;
+	CNode* curr;
+
+	pred = &m_head;
+	curr = pred->m_next;
+
+	while (curr->m_key < _key)
+	{
+		pred = curr;
+		curr = curr->m_next;
+	}
+
+	pred->Lock();
+	curr->Lock();
+
+	if (Validate(pred, curr))
+	{
+		curr->Unlock();
+		pred->Unlock();
+
+		return _key == curr->m_key;
+	}
+
+	curr->Unlock();
+	pred->Unlock();
+
+	return false;
+}
+
+bool CLinkedList::Validate(CNode* _pred, CNode* _curr)
+{
+	// 유효성 검사를 어떻게 하는 것이 중요하다.
+	// 먼저 헤드부터 쭉 따라간다.
+	CNode* node = &m_head;
+
+	while (node->m_key <= _pred->m_key)
+	{
+		// 찾았다.
+		if (node == _pred)
+		{
+			// pred 다음 노드가 curr인지 체크
+			return _pred->m_next == _curr;
+		}
+
+		node = node->m_next;
+	}
+
+	// 쭉 이동을 하다보니 pred를 만나지 못했는데 key가 pred보다 크다면 실패.
+	return false;
+}
+
+/*
+- 낙천적인 동기화의 문제
+1. 언제 delete를 하는가?
+
+-해결책
+1. freeList를 만들어 거기에 넣어 놓는다. (쭉 모아두고 나중에 delete할 용도)
+2. next field의 접근 시 exception을 발생시키지 않도록만 하면 된다.
+	[1] freeList의 마지막 node는 MAXINT를 갖는다.
+*/
+void CLinkedList::Recyle_FreeList()
+{
+	CNode* a = m_freeList;
+	while (a != &m_freeTail)
+	{
+		CNode* b = a->m_next;
+		delete a;
+		a = b;
+	}
+
+	m_freeList = &m_freeTail;
+}
 #endif //__OPTIMISTIC_SYNCHRONIZATION__
 
 #ifdef __LAZY_SYNCHRONIZATION__
