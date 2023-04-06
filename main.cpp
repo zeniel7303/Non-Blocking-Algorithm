@@ -4,7 +4,12 @@
 const auto NUM_TEST = 4000000;
 const auto KEY_RANGE = 1000;
 
+#ifdef __NONBLOCKING_SYNCHRONIZATION__
+LFList clist;
+#else
 CLinkedList clist;
+#endif
+
 volatile int sum;
 
 void ThreadFunc(int _numThread)
@@ -37,21 +42,6 @@ void ThreadFunc(int _numThread)
 
 void main()
 {
-#ifdef __COARSE_GRAINED_SYNCHRONIZATION__
-#endif //__COARSE_GRAINED_SYNCHRONIZATION__
-
-#ifdef __FINE_GRAINED_SYNCHRONIZATION__
-#endif //__FINE_GRAINED_SYNCHRONIZATION__
-
-#ifdef __OPTIMISTIC_SYNCHRONIZATION__
-#endif //__OPTIMISTIC_SYNCHRONIZATION__
-
-#ifdef __LAZY_SYNCHRONIZATION__
-#endif //__LAZY_SYNCHRONIZATION__
-
-#ifdef __NONBLOCKING_SYNCHRONIZATION__
-#endif //__NONBLOCKING_SYNCHRONIZATION__
-
 	for (int i = 1; i <= 16; i *= 2)
 	{
 		clist.Init();
@@ -76,11 +66,28 @@ void main()
 
 		int execMs = duration_cast<milliseconds>(execTime).count();
 
+#ifdef __NONBLOCKING_SYNCHRONIZATION__
+		clist.Display(50);
+#else
 		clist.display20();
+#endif
+		
 
-#ifdef __OPTIMISTIC_SYNCHRONIZATION__
+#ifdef __OPTIMISTIC_SYNCHRONIZATION__ 
 		clist.Recyle_FreeList();
 #endif //__OPTIMISTIC_SYNCHRONIZATION__
+
+#ifdef __LAZY_SYNCHRONIZATION__
+#ifdef __Shared_Ptr__
+#else
+		clist.Recyle_FreeList();
+#endif //__Shared_Ptr__
+		
+#endif //__LAZY_SYNCHRONIZATION__
+
+#ifdef __NONBLOCKING_SYNCHRONIZATION__
+		clist.RecycleFreeList();
+#endif
 
 		cout << "Threads[ " << i << " ] , sum = " << sum;
 		cout << ", execTime =" << execMs << " msecs\n";
@@ -172,7 +179,207 @@ delete된 값은 프로그램에서 값이 재사용되므로 어떻게 이동할지 모른다.
 */
 
 /*
-4. __LAZY_SYNCHRONIZATION__
+4. __LAZY_SYNCHRONIZATION__ : 게으른 동기화
+- 개요
+1. 낙천적인 동기화는 lock의 횟수는 비약적으로 감소했으나, 리스트를 두 번 순회해야 한다는 눈에 보이는 오버헤드가 있다.
+2. 이를 극복하여 다시 순회하지 않는 알고리즘을 작성하였다.
+	[1] Validate()가 노드를 처음부터 다시 순회하지 않고 Validation을 수행한다.
+	[2] pred와 curr의 잠금은 여전히 필요하다.
+	[3] Contains을 하다보니 Validate 검색을 하는데 lock을 걸지 않아도 될 것 같아 Wait-Free로 만들어 준다.
 
-5. __NONBLOCKING_SYNCHRONIZATION__
+- 아이디어
+1. 각 노드에서 Marked(Removed) 필드를 추가해 그 노드가 집합에서 제거되어 있는지 표시한다.
+	[1] Marked(Removed)가 true면 제거되었다는 표시
+	[2] Marking을 실제 제거보다 반드시 먼저 수행한다.
+	[3] 순회를 할 때 대상 노드를 잠글 필요가 없고 노드가 head에서 접근할 수 있는지 확인하기 위해 전체 리스트를 다시 순회하지 않아도 된다.
+
+- 단점
+1. 여전히 Add 메소드와 Remove 메소드는 Blocking이다.
+2. 한 쓰레드가 lock을 얻은 채로 지연되면, 다른 쓰레드 역시 지연된다.
+
+- 의문
+1. 이 로직이 제대로 돌아갈까?
+	[1] 다음의 명제를 주목
+		# Marking되어 있지 않은 모든 Node는 실제 리스트에 존재하는 살아있는 Node이다.
+			but, true라고 무조건 존재하진 않는다.
+		ex)
+		Marked = true;
+		pred ->next = curr->next;
+		이러면 Removed가 false면 무조건 리스트 상에 존재한다.
+		하지만 아직 실행되지 않은 이 중간에서 true인데 아직 remove가 되지 않은 요소가 있을 수 있다.
+		근데 false인데 Removed 되는 건 절대 없다.
+	[2] 보충
+		# Validate에서의 Marking 검사는 locking 이후에 이루어지므로 Validate가 OK면 안전하다.
+
+- 주의점
+1. FreeList는 어떻게 구현되는가?
+2. 재사용 금지
+	[1] 모든 메쏘드 호출이 종료된 후 재사용
+3. Marking이 해제되는 순간 오작동
+4. c++11의 shared_ptr
+	[1] 멀티쓰레드에서의 안정성을 책임질 수 없다.
+	[2] 성능상의 큰 문제가 있다.
+
+-Shared_ptr 사용
+1. FreeList를 통해 재사용 하는건 게임 실행 중엔 사용 불가능하다. 그래서 사용해봄
+2. 알아서 delete 해주는 shared_ptr은 멀티쓰레드에서 사용 가능할까?
+3. 싱글쓰레드에서 너무나도 느리다.(오버헤드가 너무 크기때문)
+4. 멀티쓰레드에 경우 결과가 안나온다. 무한루프에 빠진 듯 하다.
+   그래서 갯수를 줄이고 실행하면 결과는 나오나 엑세스 위반이 뜬다.(데이터 레이스가 나서 죽어버림)
+   데이터 레이스가 난 곳은 Add의 curr = pred->m_next부분이다.
+   head의 next는 shared_ptr이다. 이 shared_ptr을 curr에 복사하는 곳에서 데이터레이스가 발생한다.
+   head의 next는 다른 쓰레드가 lock을 걸고 바꾼다. 수정을 계속 하는데 lock을 걸고 읽지를 않는다. shared_ptr로 복사하는 것은 안전하지 않다.
+   그래서 읽으려면 락을 걸고 읽어줘야 한다. head의 값은 계속 바뀐다. 여러 쓰레드가 lock을 걸고 바꾸고 있다. 근데 읽는거 락 안걸고 막 읽는 것은 데이터레이스다.
+   다른 애가 pred - curr에서 curr 값을 바꾸거나 하지 않아 죽을 일이 없지만 curr = pred->next 여기서는 next에 뭐가 들어있는지 모른다. 그래서 여기서는 죽을 수 있다.
+5. 결론은 속도도 안나오고 죽는 문제도 있어서 쓰면 안된다.
+*/
+
+/*
+5. __NONBLOCKING_SYNCHRONIZATION__ : 비멈춤 동기화
+lock-free 알고리즘을 사용하지 않으면 병렬성이 감소하고 우선순위 역전이나 Convoying 현상이 생긴다.
+
+- lock-free 알고리즘이란?
+1. 여러개의 쓰레드에서 동시에 호출했을 때에도 정해진 단위 시간마다 적어도 한 개의 호출이 완료되는 알고리즘
+2. 자료구조 및 그것에 대한 접근 방법
+	 자료구조 | 알고리즘
+	[1] queue : enqueue, dequeue
+	[2] stack : push, pop
+	[3] 이진 트리 : insert, delete, search
+3. 멀티쓰레드에서 동시에 호출해도 정확한 결과를 만들어주는 알고리즘
+	[1] stl은 타락이다. why? 멀티쓰레드에서는 잘 돌아가지 않는다.(atomic해야하므로)
+4. non-blocking 알고리즘
+	[1] 다른 쓰레드가 어떤 상태에 있건 상관없이 호출이 완료된다.
+5. 호출이 다른 쓰레드와 충돌하였을 경우 적어도 하나의 승자가 있어서, 승자는 delay없이 완료된다.
+
+* 3,4,5를 만족하는 것이 락프리 알고리즘이다(이러한 성격을 가지고 있어야 한다.).
+* wait free는 충돌했을 경우 상관없이 끝나면된다.
+* lock free는 충돌하면 딜레이가 생길 수는 있으나 다른 나머지 하나는 반드시 딜레이 없이 완료해야한다.
+	ex) 100개가 부딪히면 99개는 기다리더라도 적어도 1개의 승자는 딜레이없이 끝나야 lock free이다.
+  승자가 없거나 승자가 있더라도 걔가 딜레이 될 수 있다면 lock free가 아니다.
+
+- wait free 알고리즘이란?
+1. 호출이 다른 쓰레드와 충돌해도 모두 delay 없이 완료된다.
+   (모두 다 정해진 시간에 끝나면 wait free이다.)
+
+- 추가 상식
+1. lock을 사용하지 않는다고 lock free 알고리즘이 아니다. ex) while(dataReady == false) 이런 식으로 기다리는 것
+2. lock을 사용하면 무조건 lock free 알고리즘이 아니다.
+
+						알고리즘
+					 ↙          ↘
+	     싱글쓰레드 전용       멀티쓰레드
+		(stl 컨테이너들)	   ↙	   ↘
+						 Blocking	   Non-blocking
+						               ↙        ↘
+								  Lock-free		  ...
+								  ↙      ↘
+							 Wait-free     ...
+
+ex) 
+push(int x)
+{
+	Node* n = new Node(x);
+	lock.lock();
+	tail->next = n;
+	tail = n;
+	lock.unlock();
+}
+을 논블로킹으로 하면?
+
+push(int x)
+{
+	Node* n = new Node(x);
+	while(true)
+	{
+		Node* last = tail;
+		Node* next = last->next;
+		if(last != tail) continue;
+		if(next == NULL)
+		{
+			if(CAS(&(last->next), NULL, n))
+			{
+				CAS(&tail, last, n);
+				return;
+			}
+		}
+		else CAS(&tail, last, next);
+	}
+}
+가 된다. 뮤텓스를 걸지 않는다. 다른 쓰레드가 뭘 하든 계속 돌아간다. wait-free이다.
+CAS -> lock free 알고리즘을 구현하기 위해서 필수다.
+
+- CAS
+1. CAS 없이는 대부분의 non blocking 알고리즘들을 구현할 수 없다.
+	ex) queue, stack, list
+2. CAS를 사용하면 모든 싱글쓰레드 알고리즘들을 lock free 알고리즘으로 변환할 수 있다. (중요)
+3. lock free 알고리즘의 핵심
+	cas(&a, old, new);
+	의미 : a의 값이 old면 new로 바꾸고 true를 리턴
+	다른 버전의 의미 : a 메모리를 다른 쓰레드가 먼저 업데이트 해서 false가 나왔다면 모든 것을 포기하고 다시 시도
+
+lock.lock();				while(true) {
+sum = sum + 2;			->	int old_sum = sum;
+lock.unlock();				if(CAS(&sum, old_sum, old_sum + 2 )) break; }
+
+CAS를 통해 이렇게 치환 가능하다.
+
+4. CAS 쉬워보인다.
+	tail값도 바꿔야하고 next도 바꿔야하고 비교하고 변경 했나 안했나 감시하고 하면서 한방에 업데이트 하면 된다. 하지만 쉽지 않다.
+	만약 head -> x -> 3 -> 1 -> 9 <- tail 여기에 push(35)를 한다면
+	tail과 tail의 next를 동시에 보면서 바꿔주는, 즉 2개의 메모리를 동시에 보는 듀얼 CAS가 구현된 CPU가 없다.
+	그렇기에 CAS 한번에 두 번한 효과를 내야해서 알고리즘이 복잡해진다. 그래서 논블로킹 프로그램이 어렵다.
+	실수할 수 있는데 실수했다고 바로 알아차리기 어렵다. 이 실수가 오작동을 일으키지만 자주 오작동하지 않는다.
+
+- 종합
+1. 알고리즘이 많이 복잡하다.
+2. 그래서 작성시 실수하기 쉽다.
+3. 실수를 알아차리기 힘들다.(끔찍하다)
+	[1] 하루에 한 두 번 서버 크래시
+	[2] 가끔 아이템 증발
+4. 제대로 동작하는 것이 증명된 알고리즘을 사용해야한다.
+5. 그러므로 믿을 수 있는 non blocking container들을 사용해라
+	ex) intel TBB, Visual Studio PPL, c++20, boost
+6. 자신을 포함한 출처가 의심스러운 알고리즘은 정확성을 증명하고 사용하라.
+	(정확성이 증명된 논문에 있는 알고리즘은 OK)
+
+- lock-free 동기화
+1. add, remove는 lock free로. wait free로 구현하면 프로그램이 지저분해진다.
+2. Contains()는 이미 wait free
+
+- non blocking 구현이란?
+1. 게으른 동기화를 통해 만족할만한 멀티쓰레드 향상을 얻었으나 블로킹 구현이라 성능 향상의 여지가 남아있고
+   우선순위 역전이나 Convoying에서 자유롭지 못하다.
+2. 논블로킹 구현은 게으른 동기화에서 출발한다. 이미 충분히 최적화 되어있다.
+3. 락과 오버헤드의 최소화 그리고 marking을 사용할 것이다. O(1)의 Validation
+	[1] 락을 사용하지 않는다.
+	[2] 서로 경쟁하는 Thead는 cas로 승부를 낸다.
+		(1) 한번의 cas로 승부 결정
+		(2) 이겼으면 무조건 메쏘드가 성공적으로 종료해야한다. 
+			{1} 적어도 이전보다는 더 진전된 상태로 바뀌어야 한다.
+		(3) 패배했으면?
+			{1} cas가 실패하면 다른 쓰레드가 먼저 변경을 실행한 것이므로 변경을 포기해야한다.
+			{2] cas가 실패했으므로 이 위치에서는 더 이상 작업할 수 없고 다른 위치를 찾아야한다.
+			{3} 졌다는 이야기는 다른 쓰레드에서 먼저 자료구조를 수정했다는 이야기이므로,
+			    지금까지 수집한 자료구조 정보를 더 이상 사용할 수없으므로 다시 수집해야한다.
+
+- CAS의 한계
+1. 한번에 하나의 변수밖에 바꾸지 못한다. -> 꼼수로 해결
+	[1] 주소와 마킹이 두 군데 떨어져 있어서 못한다면 합치면 된다.(한 장소에 주소와 마킹을 동시에 저장)
+		그러면 메모리 하나에 대해 CAS로 설명할 수 있다.(attemptMark 함수 만들기)
+	[2] 그러나 모든 경우에는 안되고 특수한 경우에만 사용 가능하다.(일반적으로는 아무 때나 변수를 합칠 수 없다.)
+2. 검색 횟수를 줄이기 위해 marking이 필요하다.
+	[1] 게으른 동기화와 비슷한 개념
+	[2] 여기서 마킹은 노드의 삭제를 의미한다.
+3. marking과 next의 atomic한 동시 변환이가능해야 한다.
+
+- 변형
+1. 하나의 변수에 주소와 marking을 동시에 저장
+2. marking 변경용 cas 재공 (attemptMark)
+
+- Window에서의 멀티 CAS 구현
+1. CAS(oldmark, mark, oldnext, next)
+2. 32비트 주소 중 LSB를 마크로 사용(1비트를 mark로 사용)
+	[1] next필드를 포인터로 직접 사용할 수 없게 되었으므로, 모든 next 필드를 통한 node이동 시 type 변환이 필요하다.
+	[2] 디버깅이 어려워진다.
+		(1) 포인터가 아닌 다른 데이터 타입으로 선언해도 된다.
 */
