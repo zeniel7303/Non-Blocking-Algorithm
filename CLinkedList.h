@@ -1,6 +1,7 @@
 #pragma once
 #include "stdafx.h"
 
+#ifdef __LINKEDLIST__
 #ifdef __COARSE_GRAINED_SYNCHRONIZATION__
 class CNode
 {
@@ -197,7 +198,7 @@ private:
 	CNode m_freeTail;
 	mutex m_lock;
 #endif //__Shared_Ptr__
-	
+
 public:
 	CLinkedList();
 	~CLinkedList();
@@ -267,8 +268,7 @@ public:
 		return reinterpret_cast<LFNode*>(m_value & 0xFFFFFFFFFFFFFFFE);
 #else
 		return reinterpret_cast<LFNode*>(m_value & 0xFFFFFFFE);
-#endif
-		
+#endif	
 	}
 
 	LFNode* GetPtr(bool* _removed)
@@ -293,7 +293,7 @@ public:
 	bool CAS(LFNode* _oldNode, LFNode* _newNode, bool _oldRemoved, bool _newRemoved)
 	{
 		INT_PTR oldValue, newValue;
-		
+
 		oldValue = reinterpret_cast<INT_PTR>(_oldNode);
 		if (_oldRemoved == true)
 		{
@@ -327,7 +327,7 @@ public:
 #else
 		return atomic_compare_exchange_strong(reinterpret_cast<atomic_int*>(&m_value), &oldValue, newValue);
 #endif
-		
+
 	}
 
 	bool TryMarking(LFNode* _oldNode, bool _newRemoved)
@@ -367,6 +367,10 @@ public:
 		m_next.Set(nullptr, false);
 		m_key = _keyValue;
 	}
+	LFNode& operator=(const LFNode& rhs)
+	{
+		if (this != &rhs) return *this;
+	}
 };
 
 class LFList
@@ -390,3 +394,4 @@ public:
 	void Display(int _num);
 };
 #endif //__NONBLOCKING_SYNCHRONIZATION__
+#endif

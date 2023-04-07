@@ -1,19 +1,25 @@
 #include "stdafx.h"
 #include "CLinkedList.h"
+#include "CQueue.h"
 
 const auto NUM_TEST = 4000000;
-const auto KEY_RANGE = 1000;
+const auto KEY_RANGE = 30;
 
+#ifdef __LINKEDLIST__
 #ifdef __NONBLOCKING_SYNCHRONIZATION__
-LFList clist;
+LFList cTemp;
 #else
-CLinkedList clist;
+CLinkedList cTemp;
+#endif
+#else
+CQueue cTemp;
 #endif
 
 volatile int sum;
 
 void ThreadFunc(int _numThread)
 {
+#ifdef __LINKEDLIST__
 	int key;
 
 	for (int i = 0; i < NUM_TEST / _numThread; i++)
@@ -22,15 +28,15 @@ void ThreadFunc(int _numThread)
 		{
 		case 0:
 			key = rand() % KEY_RANGE;
-			clist.Add(key);
+			cTemp.Add(key);
 			break;
 		case 1:
 			key = rand() % KEY_RANGE;
-			clist.Remove(key);
+			cTemp.Remove(key);
 			break;
 		case 2:
 			key = rand() % KEY_RANGE;
-			clist.Contains(key);
+			cTemp.Contains(key);
 			break;
 		default:
 			cout << "Error \n";
@@ -38,13 +44,23 @@ void ThreadFunc(int _numThread)
 			break;
 		}
 	}
+#else
+	for (int i = 0; i < NUM_TEST / _numThread; i++) {
+		if ((rand() % 2 == 0) || i < 10000 / _numThread) {
+			cTemp.Enq(i);
+		}
+		else {
+			int key = cTemp.Deq();
+		}
+	}
+#endif
 }
 
 void main()
 {
 	for (int i = 1; i <= 16; i *= 2)
 	{
-		clist.Init();
+		cTemp.Init();
 		sum = 0;
 		vector<thread> threads;
 
@@ -66,27 +82,30 @@ void main()
 
 		int execMs = duration_cast<milliseconds>(execTime).count();
 
+#ifdef __LINKEDLIST__
 #ifdef __NONBLOCKING_SYNCHRONIZATION__
-		clist.Display(50);
+		cTemp.Display(10);
 #else
-		clist.display20();
+		cTemp.display20();
 #endif
-		
 
 #ifdef __OPTIMISTIC_SYNCHRONIZATION__ 
-		clist.Recyle_FreeList();
+		cTemp.Recyle_FreeList();
 #endif //__OPTIMISTIC_SYNCHRONIZATION__
 
 #ifdef __LAZY_SYNCHRONIZATION__
 #ifdef __Shared_Ptr__
 #else
-		clist.Recyle_FreeList();
+		cTemp.Recyle_FreeList();
 #endif //__Shared_Ptr__
-		
+
 #endif //__LAZY_SYNCHRONIZATION__
 
 #ifdef __NONBLOCKING_SYNCHRONIZATION__
-		clist.RecycleFreeList();
+		cTemp.RecycleFreeList();
+#endif
+#else
+		cTemp.display20();
 #endif
 
 		cout << "Threads[ " << i << " ] , sum = " << sum;

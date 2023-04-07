@@ -1,5 +1,6 @@
 #include "CLinkedList.h"
 
+#ifdef __LINKEDLIST__
 #ifdef __COARSE_GRAINED_SYNCHRONIZATION__
 CLinkedList::CLinkedList()
 {
@@ -473,7 +474,7 @@ CLinkedList::CLinkedList()
 	m_freeTail.m_key = 0x7FFFFFFF;
 	m_freeList = &m_freeTail;
 #endif //__Shared_Ptr__
-	
+
 }
 
 CLinkedList::~CLinkedList()
@@ -492,7 +493,7 @@ void CLinkedList::Init()
 		ptr = m_head.m_next;
 		m_head.m_next = m_head.m_next->m_next;
 		delete ptr;
-}
+	}
 #endif //__Shared_Ptr__
 }
 
@@ -592,7 +593,7 @@ bool CLinkedList::Remove(int _key)
 			m_freeList = curr;
 			m_lock.unlock();
 #endif //__Shared_Ptr__
-			
+
 			pred->Unlock();
 			curr->Unlock();
 
@@ -624,7 +625,7 @@ bool CLinkedList::Contains(int _key)
 
 	curr = &m_head;
 #endif //__Shared_Ptr__
-	
+
 	while (curr->m_key < _key)
 	{
 		curr = curr->m_next;
@@ -759,6 +760,7 @@ bool LFList::Remove(int _key)
 			snip = curr->m_next.TryMarking(succ, true);
 			if (!snip) continue;
 			pred->m_next.CAS(curr, succ, false, false);
+
 			return true;
 		}
 	}
@@ -793,3 +795,4 @@ void LFList::Display(int _num)
 	cout << endl;
 }
 #endif //__NONBLOCKING_SYNCHRONIZATION__
+#endif
