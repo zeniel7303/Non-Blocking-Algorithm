@@ -24,5 +24,6 @@ using namespace chrono;
 //#define __Shared_Ptr__
 #define __NONBLOCKING_SYNCHRONIZATION__
 #else
-#define __COARSE_GRAINED_SYNCHRONIZATION__
+//#define __COARSE_GRAINED_SYNCHRONIZATION__
+#define __LOCK_FREE__
 #endif

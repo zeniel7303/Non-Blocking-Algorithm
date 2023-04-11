@@ -24,63 +24,58 @@ public:
 };
 
 class CQueue {
+	// 멤버로 헤드와 테일을 갖는다.
+	// enq할 땐 tail에 붙이고, deq 할 땐 head에서 뽑는다.
 	CNode* head, * tail;
 	mutex glock;
 public:
-	CQueue()
-	{
-		head = tail = new CNode(0);
-	}
-	~CQueue() {}
+	CQueue();
+	~CQueue();
 
-	void Init()
-	{
-		CNode* ptr;
-		while (head->next != nullptr) {
-			ptr = head->next;
-			head->next = head->next->next;
-			delete ptr;
-		}
-		tail = head;
-	}
+	void Init();
+	void Enq(int key);
+	int Deq();
+	void Display20();
+};
+#endif
+#ifdef __LOCK_FREE__
+class CNode
+{
+public:
+	int m_key;
+	CNode* m_next;
 
-	void Enq(int key)
+	CNode() { m_next = nullptr; }
+	CNode(int _keyValue)
 	{
-		CNode* e = new CNode(key);
-		glock.lock();
-		tail->next = e;
-		tail = e;
-		glock.unlock();
+		m_next = nullptr;
+		m_key = _keyValue;
 	}
+	~CNode() {}
+};
 
-	int Deq()
-	{
-		glock.lock();
-		if (nullptr == head->next) {
-			cout << "QUEUE EMPTY!!\n";
-			while (true);
-		}
-		int result = head->next->key;
-		CNode* temp = head;
-		head = head->next;
-		glock.unlock();
-		delete temp;
-		return result;
-	}
+class CNullmutex {
+public:
+	void lock() {}
+	void unlock() {}
+};
 
-	void display20()
-	{
-		int c = 20;
-		CNode* p = head->next;
-		while (p != nullptr)
-		{
-			cout << p->key << ", ";
-			p = p->next;
-			c--;
-			if (c == 0) break;
-		}
-		cout << endl;
-	}
+class CLockFreeQueue
+{
+private:
+	CNode* volatile m_head;
+	CNode* volatile m_tail;
+
+public:
+	CLockFreeQueue();
+	~CLockFreeQueue();
+
+	void Init();
+	bool CAS(CNode* volatile* _addr, CNode* _oldNode, CNode* _newNode);
+	void Enq(int _key);
+	int Deq();
+	int EmptyError();
+	void Display20();
 };
 #endif
 #endif
