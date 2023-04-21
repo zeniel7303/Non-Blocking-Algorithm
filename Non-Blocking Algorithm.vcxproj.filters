@@ -40,5 +40,8 @@
     <Image Include="다운로드.png">
       <Filter>리소스 파일</Filter>
     </Image>
+    <Image Include="다운로드_2.png">
+      <Filter>리소스 파일</Filter>
+    </Image>
   </ItemGroup>
 </Project>

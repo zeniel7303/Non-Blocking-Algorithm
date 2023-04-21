@@ -54,12 +54,6 @@ public:
 	~CNode() {}
 };
 
-class CNullmutex {
-public:
-	void lock() {}
-	void unlock() {}
-};
-
 class CLockFreeQueue
 {
 private:

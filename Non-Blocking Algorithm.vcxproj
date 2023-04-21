@@ -150,6 +150,7 @@
   </ItemGroup>
   <ItemGroup>
     <Image Include="다운로드.png" />
+    <Image Include="다운로드_2.png" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
